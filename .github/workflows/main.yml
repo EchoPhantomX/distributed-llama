@@ -1,4 +1,5 @@
 name: main
+
 on:
   pull_request:
     branches:
@@ -8,56 +9,78 @@ on:
     branches:
       - main
       - feat/nn
+
 jobs:
-  build-linux:
-    name: Linux
-    runs-on: ${{matrix.runner}}
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+
     strategy:
+      fail-fast: false
       matrix:
         include:
-          - runner: ubuntu-22.04
-            arch: amd64
-          - runner: ubuntu-24.04-arm
-            arch: arm64
+          - name: Linux amd64
+            runner: ubuntu-22.04
+            artifact_name: dllama-linux-amd64
+          - name: Linux arm64
+            runner: ubuntu-24.04-arm
+            artifact_name: dllama-linux-arm64
+          - name: Windows amd64
+            runner: windows-latest
+            artifact_name: dllama-windows-amd64
+          - name: macOS arm64
+            runner: macos-14
+            artifact_name: dllama-macos-arm64
+
     steps:
       - name: Checkout Repo
-        uses: actions/checkout@v3
-      - name: Dependencies
-        id: dependencies
-        run: sudo apt-get update && sudo apt-get install build-essential
+        uses: actions/checkout@v4
+
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y build-essential
+
+      - name: Install dependencies (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: choco install make -y
+
+      - name: Install dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install make
+
       - name: Build
-        id: build
+        shell: bash
         run: |
           make dllama
           make nn-cpu-test
           make nn-cpu-ops-test
           make tokenizer-test
+
       - name: nn-cpu-test
+        shell: bash
         run: ./nn-cpu-test
+
       - name: nn-cpu-ops-test
+        shell: bash
         run: ./nn-cpu-ops-test
+
       - name: tokenizer-test
+        shell: bash
         run: ./tokenizer-test
 
-  build-windows:
-    name: Windows
-    runs-on: windows-latest
-    steps:
-      - name: Checkout Repo
-        uses: actions/checkout@v3
-      - name: Dependencies
-        id: dependencies
-        run: choco install make
-      - name: Build
-        id: build
+      - name: Package artifacts
+        shell: bash
         run: |
-          make dllama
-          make nn-cpu-test
-          make nn-cpu-ops-test
-          make tokenizer-test
-      - name: nn-cpu-test
-        run: ./nn-cpu-test
-      - name: nn-cpu-ops-test
-        run: ./nn-cpu-ops-test
-      - name: tokenizer-test
-        run: ./tokenizer-test
+          mkdir -p dist
+          cp dllama dist/ || true
+          cp nn-cpu-test dist/ || true
+          cp nn-cpu-ops-test dist/ || true
+          cp tokenizer-test dist/ || true
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: dist/
+          if-no-files-found: error
